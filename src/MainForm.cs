@@ -155,7 +155,7 @@ namespace NewExplorer
             {
                 // 시작 10초 뒤 한 번, 그 뒤 30분마다 업데이트 확인
                 var first = new Timer { Interval = 10000 };
-                first.Tick += delegate { first.Stop(); first.Dispose(); CheckUpdate(false); updateTimer.Start(); };
+                first.Tick += delegate { first.Stop(); first.Dispose(); MongUpdate.UpdateUi.CheckAtStartup(this, "mongexplorer", "몽탐색기", Program.Version, null); updateTimer.Start(); };
                 first.Start();
             }
         }
