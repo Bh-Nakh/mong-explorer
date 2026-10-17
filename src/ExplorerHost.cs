@@ -435,6 +435,12 @@ namespace NewExplorer
                 MessageBox.Show(FindForm(), "새 폴더를 만들지 못했습니다.\n" + ex.Message, "몽탐색기", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+            RenameSoon(name);
+        }
+
+        /// <summary>보기에 name 항목이 나타나면 선택해 이름 바꾸기 상태로 둔다 (항목이 늦게 보이므로 잠시 반복 시도)</summary>
+        public void RenameSoon(string name)
+        {
             int stamp = ++selectStamp;
             int tries = 0;
             var names = new[] { name };

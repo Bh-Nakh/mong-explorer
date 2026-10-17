@@ -133,6 +133,143 @@ namespace NewExplorer
             timer.Start();
         }
 
+        string newFolderTestVerb;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+
+        delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        static extern bool EnumChildWindows(IntPtr parent, EnumChildProc proc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        static extern bool IsWindowVisible(IntPtr hwnd);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct CMICI
+        {
+            public int cbSize, fMask; public IntPtr hwnd, lpVerb, lpParameters, lpDirectory; public int nShow, dwHotKey; public IntPtr hIcon;
+            public IntPtr lpTitle, lpVerbW, lpParametersW, lpDirectoryW, lpTitleW; public int x, y;
+        }
+
+        [ComImport, Guid("000214e4-0000-0000-c000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IContextMenuById
+        {
+            [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint uFlags);
+            [PreserveSig] int InvokeCommand(ref CMICI pici);
+            [PreserveSig] int GetCommandString(UIntPtr idCmd, uint uType, IntPtr pReserved, IntPtr pszName, uint cchMax);
+        }
+
+        [ComImport, Guid("FC4801A3-2BA9-11CF-A229-00AA003D7352"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IObjectWithSiteT
+        {
+            void SetSite([MarshalAs(UnmanagedType.IUnknown)] object site);
+            void GetSite(ref Guid riid, out IntPtr site);
+        }
+
+        [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr hmenu);
+        [DllImport("user32.dll")] static extern uint GetMenuItemID(IntPtr hmenu, int pos);
+
+        /// <summary>실제 우클릭처럼 빈 공간 메뉴를 만들고, 동작 이름이 verb 인 항목을 메뉴 번호로 실행. 결과 설명</summary>
+        string InvokeBackgroundItem(ExplorerHost h, string verb)
+        {
+            var sv = h.GetView<IShellView>(Native.IID_IShellView);
+            if (sv == null) return "보기 없음";
+            IntPtr pcm = IntPtr.Zero, hmenu = IntPtr.Zero, buf = Marshal.AllocHGlobal(1024);
+            try
+            {
+                Guid iid = Native.IID_IContextMenu;
+                if (sv.GetItemObject(Native.SVGIO_BACKGROUND, ref iid, out pcm) != 0 || pcm == IntPtr.Zero) return "메뉴 없음";
+                var cm = (IContextMenuById)Marshal.GetObjectForIUnknown(pcm);
+                var site = cm as IObjectWithSiteT;           // 실제 보기처럼 메뉴에 보기를 사이트로 연결
+                if (site != null) site.SetSite(sv);
+                hmenu = Native.CreatePopupMenu();
+                cm.QueryContextMenu(hmenu, 0, 1, 0x7FFF, 0);
+                int n = GetMenuItemCount(hmenu);
+                for (int i = 0; i < n; i++)
+                {
+                    uint id = GetMenuItemID(hmenu, i);
+                    if (id == 0xFFFFFFFF || id == 0) continue;
+                    Marshal.WriteInt16(buf, 0, 0);
+                    if (cm.GetCommandString((UIntPtr)(id - 1), 4 /* GCS_VERBW */, IntPtr.Zero, buf, 512) != 0) continue;
+                    if (Marshal.PtrToStringUni(buf) != verb) continue;
+                    IntPtr dirA = Marshal.StringToHGlobalAnsi(h.CurrentPath), dirW = Marshal.StringToHGlobalUni(h.CurrentPath);
+                    var ici = new CMICI
+                    {
+                        cbSize = Marshal.SizeOf(typeof(CMICI)), fMask = 0x4000 /* CMIC_MASK_UNICODE */, hwnd = Handle,
+                        lpVerb = (IntPtr)(id - 1), lpVerbW = (IntPtr)(id - 1), lpDirectory = dirA, lpDirectoryW = dirW, nShow = 1
+                    };
+                    int hr = cm.InvokeCommand(ref ici);
+                    Marshal.FreeHGlobal(dirA); Marshal.FreeHGlobal(dirW);
+                    return "메뉴 " + (i + 1) + "번째 항목 실행 hr=0x" + hr.ToString("X");
+                }
+                return "메뉴에 '" + verb + "' 없음 (항목 " + n + "개)";
+            }
+            catch (Exception ex) { return "오류 " + ex.Message; }
+            finally
+            {
+                Marshal.FreeHGlobal(buf);
+                if (hmenu != IntPtr.Zero) Native.DestroyMenu(hmenu);
+                if (pcm != IntPtr.Zero) Marshal.Release(pcm);
+                Marshal.ReleaseComObject(sv);
+            }
+        }
+
+        static int ExplorerWindowCount()
+        {
+            int n = 0;
+            for (IntPtr h = FindWindowEx(IntPtr.Zero, IntPtr.Zero, "CabinetWClass", null); h != IntPtr.Zero; h = FindWindowEx(IntPtr.Zero, h, "CabinetWClass", null)) n++;
+            return n;
+        }
+
+        // --newfoldertest <로그> <동작 이름>: 빈 공간 우클릭 메뉴의 동작(몽집 [새 폴더 만들기])을 실행해
+        // 윈도우 탐색기 창이 새로 뜨지 않고 이 창 안에서 새 폴더가 이름 바꾸기 상태가 되는지 시험
+        void StartNewFolderTest()
+        {
+            string tdir = @"C:\mong_nftest";
+            int before = 0;
+            var steps = new List<Action>();
+            steps.Add(() =>
+            {
+                if (Directory.Exists(tdir)) Directory.Delete(tdir, true);
+                Directory.CreateDirectory(tdir);
+                File.WriteAllText(Path.Combine(tdir, "a.txt"), "a");
+                ApplyLayout("1"); SetActive(panes[0]); panes[0].AddTab(tdir, true);
+            });
+            steps.Add(() => { });
+            steps.Add(() => { });
+            steps.Add(() =>
+            {
+                before = ExplorerWindowCount();
+                Log("탐색기 창 수(전) = " + before + ", 동작 = " + newFolderTestVerb + ", 보는 폴더 = " + panes[0].ActivePath);
+                if (!Shell.SamePath(panes[0].ActivePath, tdir)) { Log("FAIL 시험 폴더로 이동하지 못함 → 동작 실행 안 함"); return; }
+                Log("우클릭 메뉴 항목 실행 = " + InvokeBackgroundItem(panes[0].ActiveHost, newFolderTestVerb));
+            });
+            steps.Add(() => { });
+            steps.Add(() => { });
+            steps.Add(() =>
+            {
+                int after = ExplorerWindowCount();
+                Check("새 폴더가 만들어짐", Directory.Exists(Path.Combine(tdir, "새 폴더")), null);
+                Check("윈도우 탐색기 창이 새로 뜨지 않음", after <= before, "전 " + before + " / 후 " + after);
+                Check("몽탐색기 안에서 새 폴더 선택", SelectedNames(panes[0].ActiveHost) == "새 폴더", SelectedNames(panes[0].ActiveHost));
+                bool editing = false;
+                EnumChildWindows(panes[0].ActiveHost.ViewWindow(), (h, l) => { if (Native.ClassName(h) == "Edit" && IsWindowVisible(h)) editing = true; return !editing; }, IntPtr.Zero);
+                Check("이름 바꾸기 상태", editing, null);
+                Shot("n1_newfolder");
+            });
+            steps.Add(() => { Log("끝"); });
+            int i = 0;
+            var timer = new Timer { Interval = 900 };
+            timer.Tick += delegate
+            {
+                if (i >= steps.Count) { timer.Stop(); return; }
+                try { steps[i++](); } catch (Exception ex) { Log("ERROR step " + i + ": " + ex.Message); }
+            };
+            timer.Start();
+        }
+
         bool viewTest;
 
         // --viewtest <로그>: 폴더별 보기 설정 기억 시험 (A 폴더를 큰 아이콘·수정한 이름 내림차순으로 → B 폴더 → 다시 A)
@@ -203,6 +340,7 @@ namespace NewExplorer
         {
             if (cutTest) { StartCutTest(); return; }
             if (viewTest) { StartViewTest(); return; }
+            if (newFolderTestVerb != null) { StartNewFolderTest(); return; }
 
             var steps = new List<Action>();
             string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);

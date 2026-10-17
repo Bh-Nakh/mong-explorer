@@ -102,6 +102,7 @@ namespace NewExplorer
                 }
                 if (args[i] == "--noactivate") noActivate = true;
                 if (args[i] == "--cuttest" && i + 1 < args.Length) { cutTest = true; selfTestLog = args[i + 1]; Settings.NoSave = true; File.WriteAllText(selfTestLog, ""); }
+                if (args[i] == "--newfoldertest" && i + 2 < args.Length) { newFolderTestVerb = args[i + 2]; selfTestLog = args[i + 1]; Settings.NoSave = true; File.WriteAllText(selfTestLog, ""); }
                 if (args[i] == "--viewtest" && i + 1 < args.Length) { viewTest = true; selfTestLog = args[i + 1]; Settings.NoSave = true; File.WriteAllText(selfTestLog, ""); }
                 if (args[i] == "--selftest" && i + 1 < args.Length) { selfTestLog = args[i + 1]; Settings.NoSave = true; File.WriteAllText(selfTestLog, ""); FolderTree.DebugLog = x => Log("   [트리] " + x); }
             }
@@ -770,6 +771,7 @@ namespace NewExplorer
         // ───────── 드라이브 연결·해제 → 트리 다시 ─────────
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == 0x004A /* WM_COPYDATA */ && NewFolderMade(m.LParam)) { m.Result = (IntPtr)1; return; }
             base.WndProc(ref m);
             if (m.Msg == 0x001A /* WM_SETTINGCHANGE */ && Settings.Current.Theme == "system" && m.LParam != IntPtr.Zero)
             {
@@ -782,6 +784,35 @@ namespace NewExplorer
                 int ev = (int)m.WParam;
                 if (ev == 0x8000 || ev == 0x8004) { driveTimer.Stop(); driveTimer.Start(); }
             }
+        }
+
+        // ───────── 몽집 우클릭 [새 폴더 만들기] ─────────
+        // 몽집이 폴더를 만든 뒤 경로를 WM_COPYDATA 로 보내 온다 → 그 폴더를 보고 있는 칸에서 이름 바꾸기 상태로
+        const long NewFolderCopyData = 0x4D4E4644;   // 'MNFD' (몽집 Shell.NewFolder 와 같은 값)
+
+        bool NewFolderMade(IntPtr lParam)
+        {
+            if (lParam == IntPtr.Zero) return false;
+            long tag = (long)System.Runtime.InteropServices.Marshal.ReadIntPtr(lParam, 0);
+            int bytes = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size);
+            IntPtr data = System.Runtime.InteropServices.Marshal.ReadIntPtr(lParam, IntPtr.Size * 2);
+            if (tag != NewFolderCopyData || data == IntPtr.Zero || bytes < 2) return false;
+            string path = System.Runtime.InteropServices.Marshal.PtrToStringUni(data, bytes / 2).TrimEnd('\0');
+            string dir, name;
+            try { dir = Path.GetDirectoryName(path); name = Path.GetFileName(path); } catch { return false; }
+            if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(name)) return false;
+            var order = new List<PaneControl> { Active };
+            for (int i = 0; i < VisibleCount(); i++) order.Add(panes[i]);
+            foreach (var p in order)
+            {
+                var h = p == null ? null : p.ActiveHost;
+                if (h == null || !Shell.SamePath(h.CurrentPath, dir)) continue;
+                if (p != active) SetActive(p);
+                p.FocusView();
+                h.RenameSoon(name);
+                return true;
+            }
+            return false;
         }
 
         // ───────── 저장 ─────────
