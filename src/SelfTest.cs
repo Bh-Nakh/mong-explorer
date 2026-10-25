@@ -244,7 +244,10 @@ namespace NewExplorer
                 before = ExplorerWindowCount();
                 Log("탐색기 창 수(전) = " + before + ", 동작 = " + newFolderTestVerb + ", 보는 폴더 = " + panes[0].ActivePath);
                 if (!Shell.SamePath(panes[0].ActivePath, tdir)) { Log("FAIL 시험 폴더로 이동하지 못함 → 동작 실행 안 함"); return; }
-                Log("우클릭 메뉴 항목 실행 = " + InvokeBackgroundItem(panes[0].ActiveHost, newFolderTestVerb));
+                // 입력기를 전각으로 바꿔 둠 → 이름 바꾸기 칸이 반각으로 돌아오는지 확인
+                Log("전각으로 = " + Native.SetFullShape(panes[0].ActiveHost.ViewWindow()) + ", 상태 = " + Native.IsFullShape(panes[0].ActiveHost.ViewWindow()));
+                if (newFolderTestVerb == "ctrlshiftn") { panes[0].FocusView(); panes[0].ActiveHost.CreateNewFolder(); Log("CreateNewFolder 실행"); }
+                else Log("우클릭 메뉴 항목 실행 = " + InvokeBackgroundItem(panes[0].ActiveHost, newFolderTestVerb));
             });
             steps.Add(() => { });
             steps.Add(() => { });
@@ -254,9 +257,10 @@ namespace NewExplorer
                 Check("새 폴더가 만들어짐", Directory.Exists(Path.Combine(tdir, "새 폴더")), null);
                 Check("윈도우 탐색기 창이 새로 뜨지 않음", after <= before, "전 " + before + " / 후 " + after);
                 Check("몽탐색기 안에서 새 폴더 선택", SelectedNames(panes[0].ActiveHost) == "새 폴더", SelectedNames(panes[0].ActiveHost));
-                bool editing = false;
-                EnumChildWindows(panes[0].ActiveHost.ViewWindow(), (h, l) => { if (Native.ClassName(h) == "Edit" && IsWindowVisible(h)) editing = true; return !editing; }, IntPtr.Zero);
-                Check("이름 바꾸기 상태", editing, null);
+                IntPtr edit = IntPtr.Zero;
+                EnumChildWindows(panes[0].ActiveHost.ViewWindow(), (h, l) => { if (Native.ClassName(h) == "Edit" && IsWindowVisible(h)) edit = h; return edit == IntPtr.Zero; }, IntPtr.Zero);
+                Check("이름 바꾸기 상태", edit != IntPtr.Zero, null);
+                if (edit != IntPtr.Zero) { var fs = Native.IsFullShape(edit); Check("이름 바꾸기 칸은 반각", fs == false, fs == null ? "입력기 없음" : fs.ToString()); }
                 Shot("n1_newfolder");
             });
             steps.Add(() => { Log("끝"); });

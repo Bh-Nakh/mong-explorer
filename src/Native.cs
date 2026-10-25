@@ -447,6 +447,62 @@ namespace NewExplorer
         [DllImport("ole32.dll")]
         public static extern void CoTaskMemFree(IntPtr pv);
 
+        // ───── 입력기 전각 끄기 (이름 바꾸기 중 영문이 ａｂｃ 처럼 넓게 들어가는 것 방지) ─────
+        public delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+        public const uint EVENT_OBJECT_FOCUS = 0x8005, WINEVENT_OUTOFCONTEXT = 0;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetWinEventHook(uint evMin, uint evMax, IntPtr hmod, WinEventProc proc, uint pid, uint tid, uint flags);
+
+        [DllImport("user32.dll")]
+        public static extern bool UnhookWinEvent(IntPtr hook);
+
+        [DllImport("imm32.dll")]
+        static extern IntPtr ImmGetContext(IntPtr hwnd);
+
+        [DllImport("imm32.dll")]
+        static extern bool ImmReleaseContext(IntPtr hwnd, IntPtr himc);
+
+        [DllImport("imm32.dll")]
+        static extern bool ImmGetConversionStatus(IntPtr himc, out int conv, out int sentence);
+
+        [DllImport("imm32.dll")]
+        static extern bool ImmSetConversionStatus(IntPtr himc, int conv, int sentence);
+
+        const int IME_CMODE_FULLSHAPE = 0x8;
+
+        /// <summary>hwnd 입력기의 전각 상태. 입력기가 없으면 null</summary>
+        public static bool? IsFullShape(IntPtr hwnd)
+        {
+            IntPtr himc = ImmGetContext(hwnd);
+            if (himc == IntPtr.Zero) return null;
+            try { int conv, sent; return ImmGetConversionStatus(himc, out conv, out sent) ? (conv & IME_CMODE_FULLSHAPE) != 0 : (bool?)null; }
+            finally { ImmReleaseContext(hwnd, himc); }
+        }
+
+        /// <summary>hwnd 입력기의 전각만 끄고 반각으로 (한/영 상태는 그대로). 껐으면 true</summary>
+        public static bool ClearFullShape(IntPtr hwnd)
+        {
+            IntPtr himc = ImmGetContext(hwnd);
+            if (himc == IntPtr.Zero) return false;
+            try
+            {
+                int conv, sent;
+                if (!ImmGetConversionStatus(himc, out conv, out sent) || (conv & IME_CMODE_FULLSHAPE) == 0) return false;
+                return ImmSetConversionStatus(himc, conv & ~IME_CMODE_FULLSHAPE, sent);
+            }
+            finally { ImmReleaseContext(hwnd, himc); }
+        }
+
+        /// <summary>시험용: hwnd 입력기를 전각으로</summary>
+        public static bool SetFullShape(IntPtr hwnd)
+        {
+            IntPtr himc = ImmGetContext(hwnd);
+            if (himc == IntPtr.Zero) return false;
+            try { int conv, sent; return ImmGetConversionStatus(himc, out conv, out sent) && ImmSetConversionStatus(himc, conv | IME_CMODE_FULLSHAPE, sent); }
+            finally { ImmReleaseContext(hwnd, himc); }
+        }
+
         public static string ClassName(IntPtr hwnd)
         {
             var sb = new StringBuilder(64);

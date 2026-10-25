@@ -165,6 +165,21 @@ namespace NewExplorer
         {
             base.OnHandleCreated(e);
             Theme.ApplyTitleBar(Handle);
+            if (focusHook == IntPtr.Zero)
+                focusHook = Native.SetWinEventHook(Native.EVENT_OBJECT_FOCUS, Native.EVENT_OBJECT_FOCUS, IntPtr.Zero, focusProc = OnFocusEvent,
+                    (uint)System.Diagnostics.Process.GetCurrentProcess().Id, 0, Native.WINEVENT_OUTOFCONTEXT);
+        }
+
+        // ───────── 이름 바꾸기 입력칸은 반각으로 ─────────
+        // 한글 입력기가 전각(Shift+Space)이면 영문이 ａｂｃ 처럼 넓게 들어감 → 보기·트리의 이름 바꾸기 칸에 포커스가 오면 전각만 끔
+        IntPtr focusHook;
+        Native.WinEventProc focusProc;     // GC 에 수거되지 않게 잡아 둠
+
+        void OnFocusEvent(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
+        {
+            if (hwnd == IntPtr.Zero || Native.ClassName(hwnd) != "Edit") return;
+            var p = PaneOf(hwnd);
+            if ((p != null && p.IsInView(hwnd)) || tree.IsTreeWindow(hwnd)) Native.ClearFullShape(hwnd);
         }
 
         protected override void OnShown(EventArgs e)
@@ -820,6 +835,7 @@ namespace NewExplorer
         {
             base.OnFormClosing(e);
             Application.RemoveMessageFilter(this);
+            if (focusHook != IntPtr.Zero) { Native.UnhookWinEvent(focusHook); focusHook = IntPtr.Zero; }
             if (selfTestLog != null) return;     // 시험 실행은 설정을 저장하지 않음
             saveTimer.Stop();
             Settings.Save();                     // 저장 직전에 현재 상태를 반영 (CaptureState)

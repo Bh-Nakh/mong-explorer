@@ -448,7 +448,7 @@ namespace NewExplorer
             timer.Tick += delegate
             {
                 bool done = stamp != selectStamp || ++tries > 80 || SelectNames(names, true) > 0;
-                if (done) { timer.Stop(); timer.Dispose(); }
+                if (done) { timer.Stop(); timer.Dispose(); Native.ClearFullShape(ViewWindow()); }   // 이름 입력은 반각으로 (포커스 이벤트를 못 받은 경우 대비)
             };
             timer.Start();
         }
