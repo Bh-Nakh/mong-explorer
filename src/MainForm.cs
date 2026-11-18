@@ -26,6 +26,7 @@ namespace NewExplorer
         readonly List<ToolStripMenuItem> themeMenus = new List<ToolStripMenuItem>();
         ToolStripMenuItem miSwap;
         ToolStripButton versionButton;
+        DriveUsageBar drives;
         UpdateInfo updateInfo;
         bool updateBusy;
         readonly Timer updateTimer = new Timer { Interval = 30 * 60 * 1000 };
@@ -43,7 +44,7 @@ namespace NewExplorer
             var s = Settings.Current;
 
             // ── 메뉴 ──
-            menu = new MenuStrip { Dock = DockStyle.Top, Padding = new Padding(4, 2, 4, 2) };
+            menu = new MenuStrip { Dock = DockStyle.Top, Padding = new Padding(4, 2, 4, 2), ShowItemToolTips = true };
             BuildMenu();
 
             // ── 왼쪽 ──
@@ -121,7 +122,7 @@ namespace NewExplorer
 
             saveTimer.Tick += delegate { saveTimer.Stop(); Settings.Save(); };
             Settings.BeforeSave = CaptureState;
-            driveTimer.Tick += delegate { driveTimer.Stop(); tree.LoadRoots(); };
+            driveTimer.Tick += delegate { driveTimer.Stop(); tree.LoadRoots(); drives.Refresh(); };
             updateTimer.Tick += delegate { CheckUpdate(false); };
             Theme.Changed += OnThemeChanged;
             Settings.SaveFailedFirst += () => BeginInvoke(new Action(() => MessageBox.Show(this,
@@ -150,6 +151,7 @@ namespace NewExplorer
             ApplyLayout(s.Layout);
             SetActive(panes[Math.Max(0, Math.Min(VisibleCount() - 1, s.ActivePane))]);
             UpdatePreviewChecks();
+            drives.Refresh();
             loaded = true;
             if (selfTestLog != null) StartSelfTest();
             else
@@ -310,6 +312,8 @@ namespace NewExplorer
             menu.Items.Add(view);
             menu.Items.Add(fav);
             menu.Items.Add(help);
+            // 메뉴 오른쪽 빈 곳: 드라이브별 용량 막대·숫자 (누르면 활성 칸에서 열기)
+            drives = new DriveUsageBar(menu, help, path => Active.Navigate(path));
 
             // 오른쪽: 칸 배치 그림 버튼
             foreach (var l in new[] { "2x2", "2x1", "1x2", "1" })
@@ -783,7 +787,7 @@ namespace NewExplorer
             return false;
         }
 
-        // ───────── 드라이브 연결·해제 → 트리 다시 ─────────
+        // ───────── 드라이브 연결·해제 → 트리·드라이브 용량 다시 ─────────
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x004A /* WM_COPYDATA */ && NewFolderMade(m.LParam)) { m.Result = (IntPtr)1; return; }
