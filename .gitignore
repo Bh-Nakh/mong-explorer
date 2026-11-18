@@ -35,3 +35,6 @@ knowledge.json
 hook/placement.txt
 # 로컬 전용 (업로드하지 않음)
 CHANGELOG.md
+
+# 개인 작업 현황 (이 PC 전용, 커밋하지 않음)
+CLAUDE.local.md
